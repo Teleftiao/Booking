@@ -79,7 +79,7 @@ def render_hotel_grid():
             return 'background-color: #ff4b4b; color: white; font-size: 11px; font-weight: bold; text-align: center;'
         return 'background-color: #2ecc71; color: white; font-size: 10px; text-align: center;'
 
-    st.dataframe(grid_df.style.applymap(style_grid), use_container_width=True, height=400)
+    st.dataframe(grid_df.style.map(style_grid), use_container_width=True, height=400)
 
 # --- 4. HEADER & DASHBOARD ---
 st.title("🏨 Hotel Flow Grid Pro")
