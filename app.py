@@ -363,7 +363,7 @@ else:
 st.divider()
 
 # --- 7. INPUT & MANAJEMEN ---
-tab_book, tab_inv, tab_settings = st.tabs(["📅 Reservasi Baru", "🛒 Penjualan Produk", "⚙️ Pengaturan"])
+tab_book, tab_inv, tab_view, tab_settings = st.tabs(["📅 Reservasi Baru", "🛒 Penjualan Produk", "📊 Lihat Reservasi", "⚙️ Pengaturan"])
 
 with tab_book:
     st.subheader("👥 Input Reservasi")
@@ -521,3 +521,79 @@ with tab_settings:
             st.session_state.ledger = upd_leg
             save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms, st.session_state.guests)
             st.rerun()
+
+with tab_view:
+    st.subheader("📊 Daftar Reservasi")
+    
+    # Filter options
+    col_filter1, col_filter2, col_filter3 = st.columns(3)
+    
+    filter_mode = col_filter1.radio("Filter berdasarkan:", ["Tanggal", "Bulan", "Tahun"])
+    
+    if filter_mode == "Tanggal":
+        filter_date = col_filter2.date_input("Pilih Tanggal")
+        filtered_booking = st.session_state.booking[
+            st.session_state.booking["Tanggal"].astype(str) == str(filter_date)
+        ]
+        st.info(f"📅 Reservasi pada: {filter_date.strftime('%d-%m-%Y')}")
+    
+    elif filter_mode == "Bulan":
+        col_month1, col_month2 = col_filter2.columns(2)
+        selected_month = col_month1.selectbox("Bulan", range(1, 13), format_func=lambda x: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][x-1])
+        selected_year = col_month2.number_input("Tahun", min_value=2020, max_value=2099, value=datetime.now().year)
+        
+        filtered_booking = st.session_state.booking[
+            (st.session_state.booking["Tanggal"].astype(str).str[:7] == f"{selected_year}-{selected_month:02d}")
+        ]
+        st.info(f"📅 Reservasi pada: {['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'][selected_month-1]} {selected_year}")
+    
+    elif filter_mode == "Tahun":
+        selected_year = col_filter2.number_input("Pilih Tahun", min_value=2020, max_value=2099, value=datetime.now().year)
+        filtered_booking = st.session_state.booking[
+            st.session_state.booking["Tanggal"].astype(str).str[:4] == str(selected_year)
+        ]
+        st.info(f"📅 Reservasi pada: Tahun {selected_year}")
+    
+    # Display statistics
+    if not filtered_booking.empty:
+        col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+        col_stat1.metric("Total Reservasi", len(filtered_booking))
+        col_stat2.metric("Total Kamar Terisi", filtered_booking["No_Kamar"].nunique())
+        col_stat3.metric("Total Tamu", filtered_booking["Customer"].nunique())
+        col_stat4.metric("Total Pendapatan", f"Rp {filtered_booking['Biaya'].sum():,.0f}".replace(",", "."))
+        
+        st.divider()
+        
+        # Display booking details
+        st.subheader("📋 Detail Reservasi")
+        
+        # Create a nice display dataframe
+        display_df = filtered_booking.copy()
+        display_df["Biaya"] = display_df["Biaya"].apply(lambda x: f"Rp {x:,.0f}".replace(",", "."))
+        display_df["Tanggal"] = pd.to_datetime(display_df["Tanggal"]).dt.strftime("%d-%m-%Y")
+        display_df["Malam"] = display_df["Malam"].astype(str) + " malam"
+        
+        st.dataframe(
+            display_df[["Tanggal", "Customer", "No_Kamar", "Malam", "Biaya", "Status"]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Tanggal": st.column_config.TextColumn("Tanggal Check-in", width="medium"),
+                "Customer": st.column_config.TextColumn("Nama Tamu", width="medium"),
+                "No_Kamar": st.column_config.TextColumn("No Kamar", width="small"),
+                "Malam": st.column_config.TextColumn("Durasi", width="small"),
+                "Biaya": st.column_config.TextColumn("Total Bayar", width="medium"),
+                "Status": st.column_config.TextColumn("Status", width="small"),
+            }
+        )
+        
+        # Download button
+        csv_data = display_df[["Tanggal", "Customer", "No_Kamar", "Malam", "Biaya", "Status"]].to_csv(index=False)
+        st.download_button(
+            label="📥 Download CSV - Laporan Reservasi",
+            data=csv_data,
+            file_name=f"Reservasi_{filter_mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+    else:
+        st.warning("⚠️ Tidak ada reservasi untuk periode yang dipilih")
