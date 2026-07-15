@@ -458,8 +458,17 @@ with tab_settings:
 
     if edit_mode == "Daftar Tamu":
         st.info("👥 Kelola data tamu - informasi akan otomatis tersimpan untuk kemudahan booking berikutnya")
+        guests = st.session_state.guests.copy()
+
+        # Normalize dataframe for Streamlit compatibility
+        guests = guests.loc[:, ~guests.columns.duplicated()]
+        for col in ["Nama", "Telepon", "Email", "Kota"]:
+            if col not in guests.columns:
+                guests[col] = ""
+            guests[col] = guests[col].fillna("").astype("string")
+
         upd_guests = st.data_editor(
-            st.session_state.guests,
+            guests,
             num_rows="dynamic",
             use_container_width=True,
             column_config={
