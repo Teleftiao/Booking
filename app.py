@@ -365,10 +365,16 @@ tab_book, tab_inv, tab_settings = st.tabs(["📅 Reservasi Baru", "🛒 Penjuala
 with tab_book:
     st.subheader("Input Reservasi")
     with st.form("new_booking"):
-        col_b1, col_b2, col_b3 = st.columns(3)
+        col_b1, col_b2 = st.columns(2)
         b_date = col_b1.date_input("Tanggal Check-in")
         b_name = col_b2.text_input("Nama Tamu")
-        b_room = col_b3.selectbox("No Kamar", st.session_state.rooms["No_Kamar"].tolist())
+        
+        # Multi-select for rooms
+        b_rooms = st.multiselect(
+            "🛏️ Pilih Kamar (Bisa memilih lebih dari 1)",
+            st.session_state.rooms["No_Kamar"].tolist(),
+            help="Klik untuk memilih satu atau lebih kamar"
+        )
 
         col_b4, col_b5, col_b6 = st.columns(3)
         b_malam = col_b4.number_input("Durasi (Malam)", min_value=1)
@@ -376,19 +382,24 @@ with tab_book:
         b_stat = col_b6.selectbox("Status", ["Lunas", "DP"])
 
         if st.form_submit_button("Simpan Reservasi"):
-            new_row = pd.DataFrame(
-                [{"Tanggal": str(b_date), "Customer": b_name, "No_Kamar": str(b_room), "Malam": b_malam, "Biaya": b_price, "Status": b_stat}]
-            )
-            st.session_state.booking = pd.concat([st.session_state.booking, new_row], ignore_index=True)
+            if not b_rooms:
+                st.error("⚠️ Pilih minimal 1 kamar!")
+            else:
+                # Create booking for each selected room
+                for room in b_rooms:
+                    new_row = pd.DataFrame(
+                        [{"Tanggal": str(b_date), "Customer": b_name, "No_Kamar": str(room), "Malam": b_malam, "Biaya": b_price, "Status": b_stat}]
+                    )
+                    st.session_state.booking = pd.concat([st.session_state.booking, new_row], ignore_index=True)
 
-            new_cash = pd.DataFrame(
-                [{"Tanggal": datetime.now().strftime("%Y-%m-%d"), "Barang": f"Kamar {b_room} ({b_name})", "Tipe": "Booking", "Jumlah": 1, "Total_IDR": b_price}]
-            )
-            st.session_state.ledger = pd.concat([st.session_state.ledger, new_cash], ignore_index=True)
+                    new_cash = pd.DataFrame(
+                        [{"Tanggal": datetime.now().strftime("%Y-%m-%d"), "Barang": f"Kamar {room} ({b_name})", "Tipe": "Booking", "Jumlah": 1, "Total_IDR": b_price}]
+                    )
+                    st.session_state.ledger = pd.concat([st.session_state.ledger, new_cash], ignore_index=True)
 
-            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
-            st.success("Booking Berhasil!")
-            st.rerun()
+                save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+                st.success(f"✅ Booking {len(b_rooms)} kamar berhasil!")
+                st.rerun()
 
 with tab_inv:
     st.subheader("Input Penjualan Barang")
@@ -444,6 +455,7 @@ with tab_settings:
             st.rerun()
 
     elif edit_mode == "Riwayat Booking":
+        st.info("💡 Setiap kamar yang dipesan akan membuat entry terpisah")
         upd_book = st.data_editor(
             st.session_state.booking,
             num_rows="dynamic",
