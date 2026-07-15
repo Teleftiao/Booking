@@ -1,183 +1,193 @@
 import streamlit as st
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
-# --- 1. CONFIGURATION ---
-st.set_page_config(page_title="Sistem Manajemen Terpadu", layout="wide")
+# --- 1. SETTING & STYLE ---
+st.set_page_config(page_title="Hotel Flow Grid Pro", layout="wide", page_icon="🏨")
 
-# File paths for storage
+# Custom CSS untuk mempercantik tampilan
+st.markdown("""
+    <style>
+    .main { background-color: #f5f7f9; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Nama file CSV
 INV_FILE = "data_inventaris.csv"
 LEDGER_FILE = "data_transaksi.csv"
 BOOKING_FILE = "data_booking.csv"
+ROOM_FILE = "data_kamar.csv"
 
-# --- 2. DATA ENGINE (LOAD/SAVE) ---
+# --- 2. DATA ENGINE ---
 def load_data():
-    # Load or create Inventory
-    if os.path.exists(INV_FILE):
-        inv = pd.read_csv(INV_FILE)
+    inv = pd.read_csv(INV_FILE) if os.path.exists(INV_FILE) else pd.DataFrame(columns=['Barang', 'Stok', 'Harga_Modal', 'Harga_Jual'])
+    leg = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame(columns=['Tanggal', 'Barang', 'Tipe', 'Jumlah', 'Total_IDR'])
+    book = pd.read_csv(BOOKING_FILE) if os.path.exists(BOOKING_FILE) else pd.DataFrame(columns=['Tanggal', 'Customer', 'No_Kamar', 'Malam', 'Biaya', 'Status'])
+    # Default 10 kamar jika file belum ada
+    if os.path.exists(ROOM_FILE):
+        rooms = pd.read_csv(ROOM_FILE)
     else:
-        inv = pd.DataFrame(columns=['Barang', 'Stok', 'Harga_Modal', 'Harga_Jual'])
-    
-    # Load or create Ledger (Cashflow)
-    if os.path.exists(LEDGER_FILE):
-        leg = pd.read_csv(LEDGER_FILE)
-    else:
-        leg = pd.DataFrame(columns=['Tanggal', 'Barang', 'Tipe', 'Jumlah', 'Total_IDR'])
-    
-    # Load or create Booking List
-    if os.path.exists(BOOKING_FILE):
-        book = pd.read_csv(BOOKING_FILE)
-    else:
-        book = pd.DataFrame(columns=['Tanggal', 'Customer', 'Jml_Kamar', 'Total_Kamar', 'Biaya', 'Status', 'Ket'])
-    
-    return inv, leg, book
+        rooms = pd.DataFrame({'No_Kamar': [str(101+i) for i in range(10)], 'Tipe': 'Standard'})
+    return inv, leg, book, rooms
 
-def save_data(inv, leg, book):
+def save_data(inv, leg, book, rooms):
     inv.to_csv(INV_FILE, index=False)
     leg.to_csv(LEDGER_FILE, index=False)
     book.to_csv(BOOKING_FILE, index=False)
+    rooms.to_csv(ROOM_FILE, index=False)
 
-# Initialize Session State
+# Inisialisasi Session State
 if 'inventory' not in st.session_state:
-    st.session_state.inventory, st.session_state.ledger, st.session_state.booking = load_data()
+    st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms = load_data()
 
-# --- 3. UI - HEADER & METRICS ---
-st.title("🏨 Manajer Bisnis: Stok, Booking & Kas")
-st.caption("Aplikasi pencatatan stok barang, reservasi kamar, dan arus kas otomatis.")
+# --- 3. LOGIK VISUAL GRID (ROOM RACK) ---
+def render_hotel_grid():
+    st.subheader("🗓️ Visual Room Rack (14 Hari)")
+    
+    # Range tanggal: Hari ini + 13 hari ke depan
+    start_date = datetime.now().date()
+    date_range = [start_date + timedelta(days=x) for x in range(14)]
+    date_labels = [d.strftime("%d\n%b") for d in date_range]
+    
+    # Daftar Kamar
+    room_list = st.session_state.rooms['No_Kamar'].tolist()
+    
+    # Buat DataFrame kosong untuk Grid
+    grid_df = pd.DataFrame("🟢 Tersedia", index=room_list, columns=date_labels)
+    
+    # Isi Grid berdasarkan data booking
+    for _, row in st.session_state.booking.iterrows():
+        try:
+            checkin = datetime.strptime(str(row['Tanggal']), "%Y-%m-%d").date()
+            malam = int(row['Malam'])
+            
+            for i in range(malam):
+                current_date = checkin + timedelta(days=i)
+                if start_date <= current_date < start_date + timedelta(days=14):
+                    date_label = current_date.strftime("%d\n%b")
+                    room_label = str(row['No_Kamar'])
+                    if room_label in grid_df.index:
+                        grid_df.at[room_label, date_label] = f"🔴 {row['Customer']}"
+        except:
+            continue
 
-# Calculations
+    # Styling Warna
+    def style_grid(val):
+        if "🔴" in val:
+            return 'background-color: #ff4b4b; color: white; font-size: 11px; font-weight: bold; text-align: center;'
+        return 'background-color: #2ecc71; color: white; font-size: 10px; text-align: center;'
+
+    st.dataframe(grid_df.style.applymap(style_grid), use_container_width=True, height=400)
+
+# --- 4. HEADER & DASHBOARD ---
+st.title("🏨 Hotel Flow Grid Pro")
+
+# Ringkasan Kas
 cash_in = st.session_state.ledger[st.session_state.ledger['Tipe'].isin(['Penjualan', 'Booking'])]['Total_IDR'].sum()
 cash_out = st.session_state.ledger[st.session_state.ledger['Tipe'] == 'Stok Masuk']['Total_IDR'].sum()
-net_balance = cash_in - cash_out
+balance = cash_in - cash_out
 
-# Metric Cards
-m1, m2, m3 = st.columns(3)
-m1.metric("Pendapatan (Uang Masuk)", f"Rp {cash_in:,.0f}".replace(",", "."))
-m2.metric("Pengeluaran (Modal/Stok)", f"Rp {cash_out:,.0f}".replace(",", "."))
-m3.metric("Saldo Bersih", f"Rp {net_balance:,.0f}".replace(",", "."), delta=f"Rp {net_balance:,.0f}".replace(",", "."))
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Total Pendapatan", f"Rp {cash_in:,.0f}".replace(",", "."))
+c2.metric("Total Modal/Stok", f"Rp {cash_out:,.0f}".replace(",", "."))
+c3.metric("Saldo Bersih", f"Rp {balance:,.0f}".replace(",", "."), delta=f"Rp {balance:,.0f}".replace(",", "."))
+c4.metric("Kamar Terisi (Hari Ini)", f"{len(st.session_state.booking[st.session_state.booking['Tanggal'] == str(datetime.now().date())])} Kamar")
 
 st.divider()
 
-# --- 4. UI - INPUT AREA ---
-st.subheader("➕ Tambah Data Baru")
-tab_stok, tab_book = st.tabs(["🛒 Transaksi Barang", "📅 Booking Kamar"])
+# --- 5. TAMPILAN UTAMA ---
+render_hotel_grid()
 
-with tab_stok:
-    with st.expander("Catat Penjualan atau Restock"):
-        c1, c2, c3, c4 = st.columns([2, 2, 1, 2])
-        t_type = c1.selectbox("Tipe Transaksi", ["Penjualan", "Stok Masuk"])
-        t_item = c2.selectbox("Pilih Produk", st.session_state.inventory['Barang'].tolist() if not st.session_state.inventory.empty else ["Belum Ada Produk"])
-        t_qty = c3.number_input("Jumlah", min_value=1, step=1)
-        
-        if c4.button("Konfirmasi Transaksi", use_container_width=True):
-            if not st.session_state.inventory.empty and t_item != "Belum Ada Produk":
-                idx = st.session_state.inventory.index[st.session_state.inventory['Barang'] == t_item][0]
-                price = st.session_state.inventory.at[idx, 'Harga_Jual'] if t_type == "Penjualan" else st.session_state.inventory.at[idx, 'Harga_Modal']
-                total = price * t_qty
-                
-                # Logic Update Stok
-                if t_type == "Penjualan":
-                    if st.session_state.inventory.at[idx, 'Stok'] >= t_qty:
-                        st.session_state.inventory.at[idx, 'Stok'] -= t_qty
-                    else:
-                        st.error("Stok Tidak Mencukupi!"); st.stop()
-                else:
-                    st.session_state.inventory.at[idx, 'Stok'] += t_qty
+st.divider()
 
-                # Record to Ledger
-                new_leg = pd.DataFrame([{'Tanggal': datetime.now().strftime("%Y-%m-%d %H:%M"), 'Barang': t_item, 'Tipe': t_type, 'Jumlah': t_qty, 'Total_IDR': total}])
-                st.session_state.ledger = pd.concat([st.session_state.ledger, new_leg], ignore_index=True)
-                
-                save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking)
-                st.success(f"Berhasil mencatat {t_type} {t_item}"); st.rerun()
+# --- 6. INPUT & MANAJEMEN ---
+tab_book, tab_inv, tab_settings = st.tabs(["📅 Reservasi Baru", "🛒 Penjualan Produk", "⚙️ Pengaturan"])
 
 with tab_book:
-    with st.expander("Input Reservasi Kamar"):
-        with st.form("form_booking", clear_on_submit=True):
-            bc1, bc2, bc3 = st.columns(3)
-            b_date = bc1.date_input("Tanggal Reservasi")
-            b_name = bc2.text_input("Nama Customer")
-            b_cost = bc3.number_input("Biaya / DP (Rp)", min_value=0, step=50000)
+    st.subheader("Input Reservasi")
+    with st.form("new_booking"):
+        col_b1, col_b2, col_b3 = st.columns(3)
+        b_date = col_b1.date_input("Tanggal Check-in")
+        b_name = col_b2.text_input("Nama Tamu")
+        b_room = col_b3.selectbox("No Kamar", st.session_state.rooms['No_Kamar'].tolist())
+        
+        col_b4, col_b5, col_b6 = st.columns(3)
+        b_malam = col_b4.number_input("Durasi (Malam)", min_value=1)
+        b_price = col_b5.number_input("Total Bayar / DP (Rp)", min_value=0, step=50000)
+        b_stat = col_b6.selectbox("Status", ["Lunas", "DP"])
+        
+        if st.form_submit_button("Simpan Reservasi"):
+            # Update Data Booking
+            new_row = pd.DataFrame([{'Tanggal': str(b_date), 'Customer': b_name, 'No_Kamar': str(b_room), 'Malam': b_malam, 'Biaya': b_price, 'Status': b_stat}])
+            st.session_state.booking = pd.concat([st.session_state.booking, new_row], ignore_index=True)
             
-            bc4, bc5, bc6 = st.columns(3)
-            b_qty_room = bc4.number_input("Jumlah Kamar", min_value=1)
-            b_cap = bc5.number_input("Total Kapasitas Kamar", min_value=1)
-            b_status = bc6.selectbox("Status Pembayaran", ["DP", "Lunas"])
+            # Update Arus Kas
+            new_cash = pd.DataFrame([{'Tanggal': datetime.now().strftime("%Y-%m-%d"), 'Barang': f"Kamar {b_room} ({b_name})", 'Tipe': 'Booking', 'Jumlah': 1, 'Total_IDR': b_price}])
+            st.session_state.ledger = pd.concat([st.session_state.ledger, new_cash], ignore_index=True)
             
-            b_note = st.text_area("Catatan (Optional)")
+            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+            st.success("Booking Berhasil!"); st.rerun()
+
+with tab_inv:
+    st.subheader("Input Penjualan Barang")
+    with st.form("new_sale"):
+        col_s1, col_s2, col_s3 = st.columns(3)
+        s_type = col_s1.selectbox("Tipe", ["Penjualan", "Stok Masuk"])
+        s_item = col_s2.selectbox("Produk", st.session_state.inventory['Barang'].tolist() if not st.session_state.inventory.empty else ["Kosong"])
+        s_qty = col_s3.number_input("Qty", min_value=1)
+        
+        if st.form_submit_button("Proses Barang"):
+            if s_item != "Kosong":
+                idx = st.session_state.inventory.index[st.session_state.inventory['Barang'] == s_item][0]
+                price = st.session_state.inventory.at[idx, 'Harga_Jual'] if s_type == "Penjualan" else st.session_state.inventory.at[idx, 'Harga_Modal']
+                
+                # Update Stok
+                if s_type == "Penjualan":
+                    st.session_state.inventory.at[idx, 'Stok'] -= s_qty
+                else:
+                    st.session_state.inventory.at[idx, 'Stok'] += s_qty
+                
+                # Update Kas
+                new_cash = pd.DataFrame([{'Tanggal': datetime.now().strftime("%Y-%m-%d"), 'Barang': s_item, 'Tipe': s_type, 'Jumlah': s_qty, 'Total_IDR': price * s_qty}])
+                st.session_state.ledger = pd.concat([st.session_state.ledger, new_cash], ignore_index=True)
+                
+                save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+                st.success("Stok Diperbarui!"); st.rerun()
+
+with tab_settings:
+    st.subheader("Edit Master Data")
+    edit_mode = st.radio("Pilih Data yang Ingin Diedit:", ["Daftar Kamar", "Daftar Produk/Stok", "Riwayat Booking", "Arus Kas"])
+    
+    if edit_mode == "Daftar Kamar":
+        upd_rooms = st.data_editor(st.session_state.rooms, num_rows="dynamic", use_container_width=True)
+        if st.button("Simpan Perubahan Kamar"):
+            st.session_state.rooms = upd_rooms
+            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+            st.rerun()
             
-            if st.form_submit_button("Simpan Booking"):
-                if b_name:
-                    # Save to Booking
-                    new_b = pd.DataFrame([{
-                        'Tanggal': str(b_date), 'Customer': b_name, 'Jml_Kamar': b_qty_room, 
-                        'Total_Kamar': b_cap, 'Biaya': b_cost, 'Status': b_status, 'Ket': b_note
-                    }])
-                    st.session_state.booking = pd.concat([st.session_state.booking, new_b], ignore_index=True)
-                    
-                    # Save to Ledger
-                    new_l = pd.DataFrame([{
-                        'Tanggal': datetime.now().strftime("%Y-%m-%d %H:%M"), 
-                        'Barang': f"Booking: {b_name}", 'Tipe': 'Booking', 'Jumlah': b_qty_room, 'Total_IDR': b_cost
-                    }])
-                    st.session_state.ledger = pd.concat([st.session_state.ledger, new_l], ignore_index=True)
-                    
-                    save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking)
-                    st.success("Booking Berhasil Disimpan!"); st.rerun()
+    elif edit_mode == "Daftar Produk/Stok":
+        upd_inv = st.data_editor(st.session_state.inventory, num_rows="dynamic", use_container_width=True,
+                                column_config={"Harga_Modal": st.column_config.NumberColumn(format="Rp %d"),
+                                               "Harga_Jual": st.column_config.NumberColumn(format="Rp %d")})
+        if st.button("Simpan Perubahan Produk"):
+            st.session_state.inventory = upd_inv
+            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+            st.rerun()
 
-st.divider()
+    elif edit_mode == "Riwayat Booking":
+        upd_book = st.data_editor(st.session_state.booking, num_rows="dynamic", use_container_width=True,
+                                 column_config={"Biaya": st.column_config.NumberColumn(format="Rp %d")})
+        if st.button("Simpan Perubahan Booking"):
+            st.session_state.booking = upd_book
+            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+            st.rerun()
 
-# --- 5. UI - DATA TABLES (EDITABLE) ---
-st.subheader("📝 Kelola & Edit Data (Klik sel untuk mengubah)")
-
-edit_book, edit_stok, edit_kas = st.tabs(["📅 Daftar Booking", "📦 Stok & Produk", "🧾 Riwayat Kas"])
-
-with edit_book:
-    # Editable Booking Table
-    upd_book = st.data_editor(
-        st.session_state.booking, 
-        use_container_width=True, 
-        num_rows="dynamic",
-        key="edit_book_table",
-        column_config={
-            "Biaya": st.column_config.NumberColumn("Biaya (Rp)", format="Rp %d"),
-        }
-    )
-    if st.button("💾 Simpan Perubahan Booking"):
-        st.session_state.booking = upd_book
-        save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking)
-        st.success("Data Booking Diperbarui!"); st.rerun()
-
-with edit_stok:
-    # Editable Inventory Table
-    upd_inv = st.data_editor(
-        st.session_state.inventory, 
-        use_container_width=True, 
-        num_rows="dynamic",
-        key="edit_inv_table",
-        column_config={
-            "Harga_Modal": st.column_config.NumberColumn("Harga Modal", format="Rp %d"),
-            "Harga_Jual": st.column_config.NumberColumn("Harga Jual", format="Rp %d"),
-        }
-    )
-    if st.button("💾 Simpan Perubahan Stok"):
-        st.session_state.inventory = upd_inv
-        save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking)
-        st.success("Data Stok Diperbarui!"); st.rerun()
-
-with edit_kas:
-    # Editable Ledger Table
-    upd_leg = st.data_editor(
-        st.session_state.ledger, 
-        use_container_width=True, 
-        num_rows="dynamic",
-        key="edit_leg_table",
-        column_config={
-            "Total_IDR": st.column_config.NumberColumn("Total (Rp)", format="Rp %d"),
-        }
-    )
-    if st.button("💾 Simpan Perubahan Kas"):
-        st.session_state.ledger = upd_leg
-        save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking)
-        st.success("Data Kas Diperbarui!"); st.rerun()
+    elif edit_mode == "Arus Kas":
+        upd_leg = st.data_editor(st.session_state.ledger, num_rows="dynamic", use_container_width=True,
+                                column_config={"Total_IDR": st.column_config.NumberColumn(format="Rp %d")})
+        if st.button("Simpan Perubahan Kas"):
+            st.session_state.ledger = upd_leg
+            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+            st.rerun()
