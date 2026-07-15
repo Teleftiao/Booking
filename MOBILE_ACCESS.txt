@@ -1,0 +1,59 @@
+MOBILE ACCESS SETUP GUIDE
+=========================
+
+1. START THE APP ON YOUR PC
+   - Double-click: launcher.bat
+   - Wait for the web browser to open at http://localhost:8501
+
+2. FIND YOUR PC'S IP ADDRESS
+   Option A (Easy):
+   - The launcher will show instructions in the console
+   - Look for your IPv4 address
+   
+   Option B (Manual):
+   - Press Windows + R
+   - Type: cmd
+   - Type: ipconfig
+   - Look for "IPv4 Address" (usually 192.168.x.x or 10.x.x.x)
+
+3. ACCESS FROM YOUR PHONE
+   - Same WiFi network as your PC (IMPORTANT!)
+   - Open browser on your phone (Chrome, Safari, etc.)
+   - Go to: http://[YOUR-PC-IP]:8501
+   
+   Example: If your IP is 192.168.1.100
+   Type: http://192.168.1.100:8501
+
+4. OPTIMIZATION FOR MOBILE
+   ✓ Sidebar is auto-hidden on mobile (better experience)
+   ✓ Responsive design automatically adapts to phone screen
+   ✓ All features work on Android and iPhone browsers
+
+TROUBLESHOOTING
+===============
+
+Q: "Cannot connect from phone"
+A: 
+  - Make sure PC and phone are on SAME WiFi
+  - Check firewall isn't blocking port 8501
+  - Try: http://192.168.x.x:8501 (not https)
+  - Restart router if still having issues
+
+Q: "IP address keeps changing"
+A: 
+  - This is normal if you restart PC
+  - Just run 'ipconfig' again to get new IP
+  - Consider setting a static IP for permanent access
+
+Q: "App works on PC but not phone"
+A:
+  - Phone might be on different WiFi network
+  - Try disabling phone VPN
+  - Check if Windows Defender is blocking access
+
+TIPS
+====
+- The app stays running in the console window
+- Closing console window stops the server
+- Keep launcher.bat running while using on phone
+- Multiple devices can access simultaneously
