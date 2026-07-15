@@ -44,6 +44,7 @@ INV_FILE = "data_inventaris.csv"
 LEDGER_FILE = "data_transaksi.csv"
 BOOKING_FILE = "data_booking.csv"
 ROOM_FILE = "data_kamar.csv"
+GUEST_FILE = "data_tamu.csv"
 
 
 # --- 2. DATA ENGINE ---
@@ -51,25 +52,27 @@ def load_data():
     inv = pd.read_csv(INV_FILE) if os.path.exists(INV_FILE) else pd.DataFrame(columns=["Barang", "Stok", "Harga_Modal", "Harga_Jual"])
     leg = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame(columns=["Tanggal", "Barang", "Tipe", "Jumlah", "Total_IDR"])
     book = pd.read_csv(BOOKING_FILE) if os.path.exists(BOOKING_FILE) else pd.DataFrame(columns=["Tanggal", "Customer", "No_Kamar", "Malam", "Biaya", "Status"])
+    guests = pd.read_csv(GUEST_FILE) if os.path.exists(GUEST_FILE) else pd.DataFrame(columns=["Nama", "Telepon", "Email", "Kota"])
 
     if os.path.exists(ROOM_FILE):
         rooms = pd.read_csv(ROOM_FILE)
     else:
         rooms = pd.DataFrame({"No_Kamar": [str(101 + i) for i in range(10)], "Tipe": "Standard"})
 
-    return inv, leg, book, rooms
+    return inv, leg, book, rooms, guests
 
 
-def save_data(inv, leg, book, rooms):
+def save_data(inv, leg, book, rooms, guests):
     inv.to_csv(INV_FILE, index=False)
     leg.to_csv(LEDGER_FILE, index=False)
     book.to_csv(BOOKING_FILE, index=False)
     rooms.to_csv(ROOM_FILE, index=False)
+    guests.to_csv(GUEST_FILE, index=False)
 
 
 # Inisialisasi Session State
 if "inventory" not in st.session_state:
-    st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms = load_data()
+    st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms, st.session_state.guests = load_data()
 
 
 # --- 3. LOGIK VISUAL GRID (ROOM RACK) ---
@@ -363,11 +366,25 @@ st.divider()
 tab_book, tab_inv, tab_settings = st.tabs(["📅 Reservasi Baru", "🛒 Penjualan Produk", "⚙️ Pengaturan"])
 
 with tab_book:
-    st.subheader("Input Reservasi")
+    st.subheader("👥 Input Reservasi")
     with st.form("new_booking"):
         col_b1, col_b2 = st.columns(2)
         b_date = col_b1.date_input("Tanggal Check-in")
-        b_name = col_b2.text_input("Nama Tamu")
+        
+        # Guest selection with option to add new
+        guest_list = st.session_state.guests["Nama"].tolist() if not st.session_state.guests.empty else []
+        col_b2_1, col_b2_2 = col_b2.columns([3, 1])
+        
+        guest_choice = col_b2_1.selectbox(
+            "👤 Nama Tamu (Pilih atau Buat Baru)",
+            ["+ Tambah Tamu Baru"] + guest_list,
+            key="guest_select_form"
+        )
+        
+        if guest_choice == "+ Tambah Tamu Baru":
+            b_name = col_b2_1.text_input("Masukkan Nama Tamu Baru")
+        else:
+            b_name = guest_choice
         
         # Multi-select for rooms
         b_rooms = st.multiselect(
@@ -384,7 +401,14 @@ with tab_book:
         if st.form_submit_button("Simpan Reservasi"):
             if not b_rooms:
                 st.error("⚠️ Pilih minimal 1 kamar!")
+            elif not b_name:
+                st.error("⚠️ Masukkan nama tamu!")
             else:
+                # Add guest if new
+                if guest_choice == "+ Tambah Tamu Baru" and b_name not in guest_list:
+                    new_guest = pd.DataFrame([{"Nama": b_name, "Telepon": "", "Email": "", "Kota": ""}])
+                    st.session_state.guests = pd.concat([st.session_state.guests, new_guest], ignore_index=True)
+                
                 # Create booking for each selected room
                 for room in b_rooms:
                     new_row = pd.DataFrame(
@@ -397,8 +421,8 @@ with tab_book:
                     )
                     st.session_state.ledger = pd.concat([st.session_state.ledger, new_cash], ignore_index=True)
 
-                save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
-                st.success(f"✅ Booking {len(b_rooms)} kamar berhasil!")
+                save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms, st.session_state.guests)
+                st.success(f"✅ Booking {len(b_rooms)} kamar berhasil! Nama Tamu: {b_name}")
                 st.rerun()
 
 with tab_inv:
@@ -424,19 +448,38 @@ with tab_inv:
                 )
                 st.session_state.ledger = pd.concat([st.session_state.ledger, new_cash], ignore_index=True)
 
-                save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+                save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms, st.session_state.guests)
                 st.success("Stok Diperbarui!")
                 st.rerun()
 
 with tab_settings:
     st.subheader("Edit Master Data")
-    edit_mode = st.radio("Pilih Data yang Ingin Diedit:", ["Daftar Kamar", "Daftar Produk/Stok", "Riwayat Booking", "Arus Kas"])
+    edit_mode = st.radio("Pilih Data yang Ingin Diedit:", ["Daftar Tamu", "Daftar Kamar", "Daftar Produk/Stok", "Riwayat Booking", "Arus Kas"])
 
-    if edit_mode == "Daftar Kamar":
+    if edit_mode == "Daftar Tamu":
+        st.info("👥 Kelola data tamu - informasi akan otomatis tersimpan untuk kemudahan booking berikutnya")
+        upd_guests = st.data_editor(
+            st.session_state.guests,
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "Nama": st.column_config.TextColumn("Nama Tamu", width="large"),
+                "Telepon": st.column_config.TextColumn("No. Telepon", width="medium"),
+                "Email": st.column_config.TextColumn("Email", width="medium"),
+                "Kota": st.column_config.TextColumn("Kota", width="medium"),
+            },
+        )
+        if st.button("Simpan Perubahan Tamu"):
+            st.session_state.guests = upd_guests
+            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms, st.session_state.guests)
+            st.success("✅ Data Tamu Berhasil Diperbarui!")
+            st.rerun()
+
+    elif edit_mode == "Daftar Kamar":
         upd_rooms = st.data_editor(st.session_state.rooms, num_rows="dynamic", use_container_width=True)
         if st.button("Simpan Perubahan Kamar"):
             st.session_state.rooms = upd_rooms
-            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms, st.session_state.guests)
             st.rerun()
 
     elif edit_mode == "Daftar Produk/Stok":
@@ -451,7 +494,7 @@ with tab_settings:
         )
         if st.button("Simpan Perubahan Produk"):
             st.session_state.inventory = upd_inv
-            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms, st.session_state.guests)
             st.rerun()
 
     elif edit_mode == "Riwayat Booking":
@@ -464,7 +507,7 @@ with tab_settings:
         )
         if st.button("Simpan Perubahan Booking"):
             st.session_state.booking = upd_book
-            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms, st.session_state.guests)
             st.rerun()
 
     elif edit_mode == "Arus Kas":
@@ -476,5 +519,5 @@ with tab_settings:
         )
         if st.button("Simpan Perubahan Kas"):
             st.session_state.ledger = upd_leg
-            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms)
+            save_data(st.session_state.inventory, st.session_state.ledger, st.session_state.booking, st.session_state.rooms, st.session_state.guests)
             st.rerun()
