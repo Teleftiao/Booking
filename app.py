@@ -4,9 +4,14 @@ from io import BytesIO
 
 import pandas as pd
 import streamlit as st
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils.dataframe import dataframe_to_rows
+
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils.dataframe import dataframe_to_rows
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
 
 # --- 1. SETTING & STYLE ---
 st.set_page_config(
@@ -148,6 +153,9 @@ def generate_monthly_cashflow():
 
 def export_cashflow_excel():
     """Export monthly cashflow to Excel with formatting"""
+    if not HAS_OPENPYXL:
+        return None
+    
     monthly_cf = generate_monthly_cashflow()
     
     if monthly_cf.empty:
@@ -323,15 +331,29 @@ if not monthly_cf.empty:
     
     st.dataframe(monthly_cf, use_container_width=True, hide_index=True)
     
-    # Download button
-    excel_file = export_cashflow_excel()
-    if excel_file:
-        st.download_button(
-            label="📥 Download Excel - Arus Kas Bulanan",
-            data=excel_file,
-            file_name=f"Arus_Kas_Bulanan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    # Download options
+    col_down1, col_down2 = st.columns(2)
+    
+    if HAS_OPENPYXL:
+        excel_file = export_cashflow_excel()
+        if excel_file:
+            col_down1.download_button(
+                label="📥 Download Excel - Arus Kas Bulanan",
+                data=excel_file,
+                file_name=f"Arus_Kas_Bulanan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+    else:
+        st.warning("⚠️ Excel export temporarily unavailable")
+    
+    # CSV fallback
+    csv_data = monthly_cf.to_csv(index=False)
+    col_down2.download_button(
+        label="📥 Download CSV - Arus Kas Bulanan",
+        data=csv_data,
+        file_name=f"Arus_Kas_Bulanan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv"
+    )
 else:
     st.info("📋 Belum ada data transaksi")
 
