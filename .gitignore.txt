@@ -1,0 +1,5 @@
+data_inventaris.csv
+data_transaksi.csv
+data_booking.csv
+__pycache__/
+.streamlit/
